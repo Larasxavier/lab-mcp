@@ -1,0 +1,42 @@
+# O mcp-grafana roda fora do cluster kind, no host.
+# O kind-config.yaml mapeia a porta 3000 do Grafana e a 4317 (OTLP gRPC)
+# do lgtm (dentro do cluster) para o host, entao o container deste
+# compose enxerga o Grafana e o coletor OTLP via host.docker.internal.
+
+services:
+  mcp-grafana:
+    image: grafana/mcp-grafana:latest
+    container_name: mcp-grafana
+    restart: unless-stopped
+    environment:
+      GRAFANA_URL: "${GRAFANA_URL:-http://host.docker.internal:3000}"
+      GRAFANA_SERVICE_ACCOUNT_TOKEN: "${GRAFANA_SERVICE_ACCOUNT_TOKEN}"
+      # o proprio mcp-grafana exporta sua telemetria nativamente (metricas
+      # Prometheus em /metrics e traces via OTLP), sem precisar de nenhuma
+      # lib de instrumentacao externa.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://host.docker.internal:4317"
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+    ports:
+      - "8000:8000"
+    command:
+      - "-t"
+      - "sse"
+      # reduz o conjunto de ferramentas exposto ao minimo que o case usa
+      # (metricas, logs, tracos proxiados via Tempo e leitura de datasource),
+      # em vez de carregar o cardapio inteiro do Grafana (oncall, incident,
+      # dashboards, admin...) no contexto do agente.
+      - "--enabled-tools"
+      - "prometheus,loki,proxied,datasource"
+      # o service account ja e Viewer, isso e uma segunda trava, no proprio
+      # MCP server, contra qualquer chamada de escrita (editar dashboard,
+      # criar alerta etc), mesmo que o token um dia ganhe mais permissao
+      - "--disable-write"
+      # guardrail nativo de custo de query do Loki. Comeca em "shadow"
+      # (so registra o que seria bloqueado, nao bloqueia de fato) para nao
+      # quebrar a demo. Troque para "enforce" se
+      # quiser ver o guardrail barrando uma
+      # consulta cara de verdade.
+      - "--loki-guardrail-mode"
+      - "shadow"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

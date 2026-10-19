@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lgtm-data
+  namespace: observability
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lgtm
+  namespace: observability
+  labels:
+    app: lgtm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lgtm
+  template:
+    metadata:
+      labels:
+        app: lgtm
+    spec:
+      containers:
+        - name: lgtm
+          image: grafana/otel-lgtm:latest
+          env:
+            # por padrao o grafana/otel-lgtm manda o log de cada componente
+            # interno pra /dev/null. Liga o do otelcol pra poder depurar
+            # o pipeline de ingestao quando algo nao aparece nos backends.
+            - name: ENABLE_LOGS_OTELCOL
+              value: "true"
+          ports:
+            - name: grafana
+              containerPort: 3000
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+            - name: prometheus
+              containerPort: 9090
+          volumeMounts:
+            # sem isso, qualquer restart do pod (mudar uma env var, por
+            # exemplo) zera o Grafana inteiro: senha do admin, service
+            # accounts, tokens, dashboards, tudo. Ja aconteceu no meio
+            # deste lab, por isso virou parte fixa do manifest agora.
+            - name: lgtm-data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "1Gi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+      volumes:
+        - name: lgtm-data
+          persistentVolumeClaim:
+            claimName: lgtm-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lgtm
+  namespace: observability
+spec:
+  selector:
+    app: lgtm
+  ports:
+    - name: grafana
+      port: 3000
+      targetPort: 3000
+      nodePort: 30300
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      nodePort: 30317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+    - name: prometheus
+      port: 9090
+      targetPort: 9090
+  type: NodePort

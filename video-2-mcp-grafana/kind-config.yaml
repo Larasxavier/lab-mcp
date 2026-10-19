@@ -1,0 +1,18 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: obs-mcp-lab
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30300
+        hostPort: 3000
+        protocol: TCP
+      - containerPort: 30080
+        hostPort: 18080
+        protocol: TCP
+      # porta OTLP gRPC do lgtm exposta no host, para que o mcp-grafana
+      # (rodando fora do cluster, via docker-compose) consiga exportar
+      # sua propria telemetria (metricas e traces das chamadas MCP)
+      - containerPort: 30317
+        hostPort: 4317
+        protocol: TCP
